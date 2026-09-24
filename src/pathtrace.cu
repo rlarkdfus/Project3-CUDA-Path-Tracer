@@ -14,6 +14,7 @@
 #include "utilities.h"
 #include "intersections.h"
 #include "interactions.h"
+#include "features.h"
 
 #define ERRORCHECK 1
 
@@ -146,10 +147,21 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.ray.origin = cam.position;
         segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
 
-        // TODO: implement antialiasing by jittering the ray
+        // Stochastic antialiasing: offset the sample by up to half a pixel in
+        // each axis so that averaging over iterations integrates the whole
+        // pixel footprint instead of point-sampling its center.
+        float jitterX = 0.0f;
+        float jitterY = 0.0f;
+#if ANTIALIASING
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
+        thrust::uniform_real_distribution<float> uHalf(-0.5f, 0.5f);
+        jitterX = uHalf(rng);
+        jitterY = uHalf(rng);
+#endif
+
         segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
+            - cam.right * cam.pixelLength.x * ((float)x + jitterX - (float)cam.resolution.x * 0.5f)
+            - cam.up * cam.pixelLength.y * ((float)y + jitterY - (float)cam.resolution.y * 0.5f)
         );
 
         segment.pixelIndex = index;

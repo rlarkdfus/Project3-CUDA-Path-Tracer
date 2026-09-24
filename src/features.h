@@ -1,1 +1,2 @@
 #define ENABLE_SPECULAR 1
+#define ANTIALIASING 1
