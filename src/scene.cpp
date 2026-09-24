@@ -58,6 +58,12 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.specular.color = glm::vec3(col[0], col[1], col[2]);
+            newMaterial.hasReflective = 1.0f;
+            if (p.contains("ROUGHNESS"))
+            {
+                newMaterial.specular.exponent = p["ROUGHNESS"];
+            }
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);

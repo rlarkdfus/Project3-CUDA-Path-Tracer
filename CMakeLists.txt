@@ -49,6 +49,7 @@ find_package(GLM REQUIRED)
 include_directories(${GLM_INCLUDE_DIRS})
 
 set(headers
+    src/features.h
     src/image.h
     src/interactions.h
     src/intersections.h

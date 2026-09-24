@@ -1,6 +1,7 @@
 #include "interactions.h"
 
 #include "utilities.h"
+#include "features.h"
 
 #include <thrust/random.h>
 
@@ -51,12 +52,30 @@ __host__ __device__ void scatterRay(
     const Material &m,
     thrust::default_random_engine &rng)
 {
-    // TODO: implement this.
-    // A basic implementation of pure-diffuse shading will just call the
-    // calculateRandomDirectionInHemisphere defined above.
+    glm::vec3 newDirection;
 
-    pathSegment.ray.direction = glm::normalize(calculateRandomDirectionInHemisphere(normal, rng));
+#if ENABLE_SPECULAR
+    float probSpecular = m.hasReflective;
+    thrust::uniform_real_distribution<float> u01(0, 1);
+
+    if (probSpecular >= 1.0f || (probSpecular > 0.0f && u01(rng) < probSpecular))
+    {
+        newDirection = glm::reflect(pathSegment.ray.direction, normal);
+        pathSegment.color *= m.specular.color / probSpecular;
+    }
+    else
+    {
+        newDirection = calculateRandomDirectionInHemisphere(normal, rng);
+        pathSegment.color *= (probSpecular > 0.0f)
+            ? m.color / (1.0f - probSpecular)
+            : m.color;
+    }
+#else
+    newDirection = calculateRandomDirectionInHemisphere(normal, rng);
     pathSegment.color *= m.color;
+#endif
+
+    pathSegment.ray.direction = glm::normalize(newDirection);
 
     // Offset along the new direction so the ray can't re-hit the surface it
     // just left (shadow acne).
