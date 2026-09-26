@@ -5,6 +5,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include "json.hpp"
+#include "tiny_obj_loader.h"
 
 #include <fstream>
 #include <iostream>
@@ -72,16 +73,24 @@ void Scene::loadFromJSON(const std::string& jsonName)
     for (const auto& p : objectsData)
     {
         const auto& type = p["TYPE"];
-        Geom newGeom;
+        Geom newGeom{};
         if (type == "cube")
         {
             newGeom.type = CUBE;
+        }
+        else if (type == "mesh")
+        {
+            newGeom.type = MESH;
         }
         else
         {
             newGeom.type = SPHERE;
         }
         newGeom.materialid = MatNameToID[p["MATERIAL"]];
+        if (newGeom.type == MESH)
+        {
+            loadFromOBJ("scenes/objs/" + p["FILE"].get<std::string>(), newGeom);
+        }
         const auto& trans = p["TRANS"];
         const auto& rotat = p["ROTAT"];
         const auto& scale = p["SCALE"];
@@ -128,4 +137,93 @@ void Scene::loadFromJSON(const std::string& jsonName)
     int arraylen = camera.resolution.x * camera.resolution.y;
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
+}
+
+void Scene::loadFromOBJ(const std::string& objFileName, Geom& geom)
+{
+    tinyobj::ObjReaderConfig config;
+    config.triangulate = true;        // fans any quads/n-gons into triangles
+    config.vertex_color = false;      // unused, and it doubles the parsed size
+
+    tinyobj::ObjReader reader;
+    if (!reader.ParseFromFile(objFileName, config))
+    {
+        cout << "Couldn't load OBJ " << objFileName << ": " << reader.Error() << endl;
+        exit(-1);
+    }
+    if (!reader.Warning().empty())
+    {
+        cout << "OBJ warning for " << objFileName << ": " << reader.Warning() << endl;
+    }
+
+    const tinyobj::attrib_t& attrib = reader.GetAttrib();
+
+    geom.triangleStart = static_cast<int>(triangles.size());
+
+    for (const tinyobj::shape_t& shape : reader.GetShapes())
+    {
+        size_t indexOffset = 0;
+        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f)
+        {
+            size_t faceVertices = shape.mesh.num_face_vertices[f];
+            if (faceVertices != 3)
+            {
+                // config.triangulate should have prevented this; skip rather
+                // than read past the face.
+                indexOffset += faceVertices;
+                continue;
+            }
+
+            Triangle tri{};
+            glm::vec3* verts[3] = { &tri.v0, &tri.v1, &tri.v2 };
+            glm::vec3* norms[3] = { &tri.n0, &tri.n1, &tri.n2 };
+            bool hasNormals = true;
+
+            for (int v = 0; v < 3; ++v)
+            {
+                const tinyobj::index_t& idx = shape.mesh.indices[indexOffset + v];
+
+                *verts[v] = glm::vec3(
+                    attrib.vertices[3 * idx.vertex_index + 0],
+                    attrib.vertices[3 * idx.vertex_index + 1],
+                    attrib.vertices[3 * idx.vertex_index + 2]);
+
+                if (idx.normal_index >= 0)
+                {
+                    *norms[v] = glm::vec3(
+                        attrib.normals[3 * idx.normal_index + 0],
+                        attrib.normals[3 * idx.normal_index + 1],
+                        attrib.normals[3 * idx.normal_index + 2]);
+                }
+                else
+                {
+                    hasNormals = false;
+                }
+            }
+
+            if (!hasNormals)
+            {
+                // No "vn" in the file: flat shade off the face normal.
+                glm::vec3 faceNormal = glm::cross(tri.v1 - tri.v0, tri.v2 - tri.v0);
+                float lengthSquared = glm::dot(faceNormal, faceNormal);
+                faceNormal = lengthSquared > 0.0f
+                    ? faceNormal / sqrtf(lengthSquared)
+                    : glm::vec3(0.0f, 1.0f, 0.0f);   // degenerate triangle
+                tri.n0 = faceNormal;
+                tri.n1 = faceNormal;
+                tri.n2 = faceNormal;
+            }
+
+            triangles.push_back(tri);
+            indexOffset += faceVertices;
+        }
+    }
+
+    geom.triangleCount = static_cast<int>(triangles.size()) - geom.triangleStart;
+    if (geom.triangleCount == 0)
+    {
+        cout << "OBJ " << objFileName << " contributed no triangles" << endl;
+    }
+
+    cout << "Loaded " << geom.triangleCount << " triangles from " << objFileName << endl;
 }

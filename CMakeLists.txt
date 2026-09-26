@@ -69,6 +69,7 @@ set(sources
     src/intersections.cu
     src/interactions.cu
     src/scene.cpp
+    src/tinyobj.cpp
     src/utilities.cpp
 )
 

@@ -12,13 +12,23 @@
 enum GeomType
 {
     SPHERE,
-    CUBE
+    CUBE,
+    MESH
 };
 
 struct Ray
 {
     glm::vec3 origin;
     glm::vec3 direction;
+};
+
+// One triangle of a loaded mesh, in the mesh's object space. Normals are
+// per-vertex so that smooth shading works; a file without normals gets the
+// face normal copied into all three, which makes the same code path flat shade.
+struct Triangle
+{
+    glm::vec3 v0, v1, v2;
+    glm::vec3 n0, n1, n2;
 };
 
 struct Geom
@@ -31,6 +41,11 @@ struct Geom
     glm::mat4 transform;
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
+
+    // MESH only: the half-open range [triangleStart, triangleStart + triangleCount)
+    // into the scene's flat triangle buffer.
+    int triangleStart;
+    int triangleCount;
 };
 
 struct Material
