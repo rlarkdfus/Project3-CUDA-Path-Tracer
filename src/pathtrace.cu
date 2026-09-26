@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <cmath>
 #include <thrust/execution_policy.h>
+#include <thrust/partition.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
 
@@ -73,6 +74,15 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm
         pbo[index].z = color.z;
     }
 }
+
+// A path stays in the working set while it still has bounces left.
+struct pathIsAlive
+{
+    __host__ __device__ bool operator()(const PathSegment& segment) const
+    {
+        return segment.remainingBounces > 0;
+    }
+};
 
 static Scene* hst_scene = NULL;
 static GuiDataContainer* guiData = NULL;
@@ -373,7 +383,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     while (!iterationComplete)
     {
         // clean shading chunks
-        cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
+        cudaMemset(dev_intersections, 0, num_paths * sizeof(ShadeableIntersection));
 
         // tracing
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
@@ -389,15 +399,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         cudaDeviceSynchronize();
         depth++;
 
-        // TODO:
         // --- Shading Stage ---
-        // Shade path segments based on intersections and generate new rays by
-        // evaluating the BSDF.
-        // Start off with just a big kernel that handles all the different
-        // materials you have in the scenefile.
-        // TODO: compare between directly shading the path segments and shading
-        // path segments that have been reshuffled to be contiguous in memory.
-
         shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
@@ -407,7 +409,24 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         );
         checkCUDAError("shade one bounce");
 
-        iterationComplete = (depth >= traceDepth);
+#if STREAM_COMPACTION
+        PathSegment* path_end = thrust::partition(
+            thrust::device,
+            dev_paths,
+            dev_paths + num_paths,
+            pathIsAlive());
+        checkCUDAError("stream compaction");
+        num_paths = static_cast<int>(path_end - dev_paths);
+#endif
+
+#if LOG_BOUNCE_COUNTS
+        if (iter == 1)
+        {
+            printf("depth %d: %d paths remaining\n", depth, num_paths);
+        }
+#endif
+
+        iterationComplete = (num_paths == 0) || (depth >= traceDepth);
 
         if (guiData != NULL)
         {
@@ -417,7 +436,8 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
+    finalGather<<<numBlocksPixels, blockSize1d>>>(pixelcount, dev_image, dev_paths);
+    checkCUDAError("final gather");
 
     ///////////////////////////////////////////////////////////////////////////
 
