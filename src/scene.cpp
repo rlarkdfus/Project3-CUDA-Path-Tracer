@@ -7,6 +7,7 @@
 #include "json.hpp"
 #include "tiny_obj_loader.h"
 
+#include <cfloat>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -159,6 +160,8 @@ void Scene::loadFromOBJ(const std::string& objFileName, Geom& geom)
     const tinyobj::attrib_t& attrib = reader.GetAttrib();
 
     geom.triangleStart = static_cast<int>(triangles.size());
+    glm::vec3 bboxMin(FLT_MAX);
+    glm::vec3 bboxMax(-FLT_MAX);
 
     for (const tinyobj::shape_t& shape : reader.GetShapes())
     {
@@ -199,6 +202,9 @@ void Scene::loadFromOBJ(const std::string& objFileName, Geom& geom)
                 {
                     hasNormals = false;
                 }
+
+                bboxMin = glm::min(bboxMin, *verts[v]);
+                bboxMax = glm::max(bboxMax, *verts[v]);
             }
 
             if (!hasNormals)
@@ -223,7 +229,15 @@ void Scene::loadFromOBJ(const std::string& objFileName, Geom& geom)
     if (geom.triangleCount == 0)
     {
         cout << "OBJ " << objFileName << " contributed no triangles" << endl;
+        bboxMin = glm::vec3(0.0f);
+        bboxMax = glm::vec3(0.0f);
     }
+
+    // Nudge the box outwards so a face lying exactly on it can't be rejected by
+    // a grazing ray's rounding.
+    const float padding = 0.0001f;
+    geom.bboxMin = bboxMin - padding;
+    geom.bboxMax = bboxMax + padding;
 
     cout << "Loaded " << geom.triangleCount << " triangles from " << objFileName << endl;
 }

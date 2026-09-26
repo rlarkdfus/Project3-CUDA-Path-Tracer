@@ -1,5 +1,7 @@
 #include "intersections.h"
 
+#include "features.h"
+
 __host__ __device__ float boxIntersectionTest(
     Geom box,
     Ray r,
@@ -123,6 +125,14 @@ __host__ __device__ float meshIntersectionTest(
     Ray q;
     q.origin = multiplyMV(mesh.inverseTransform, glm::vec4(r.origin, 1.0f));
     q.direction = glm::normalize(multiplyMV(mesh.inverseTransform, glm::vec4(r.direction, 0.0f)));
+
+#if MESH_BOUNDING_VOLUME_CULLING
+    // One slab test instead of mesh.triangleCount triangle tests, for every ray
+    // that never comes near the mesh.
+    if (!aabbIntersectionTest(mesh.bboxMin, mesh.bboxMax, q)) {
+        return -1;
+    }
+#endif
 
     float t_min = FLT_MAX;
     int hit_tri = -1;
