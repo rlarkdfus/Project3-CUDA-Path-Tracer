@@ -7,6 +7,7 @@
 #include <thrust/partition.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
+#include <thrust/sort.h>
 
 #include "sceneStructs.h"
 #include "scene.h"
@@ -74,6 +75,17 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm
         pbo[index].z = color.z;
     }
 }
+
+// Orders intersections by material. Paths ride along as the value array, so
+// sorting the keys permutes both and the two stay index-aligned.
+struct materialIdLess
+{
+    __host__ __device__ bool operator()(const ShadeableIntersection& a,
+                                        const ShadeableIntersection& b) const
+    {
+        return a.materialId < b.materialId;
+    }
+};
 
 // A path stays in the working set while it still has bounces left.
 struct pathIsAlive
@@ -398,6 +410,18 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
         depth++;
+
+#if SORT_BY_MATERIAL
+        // Group paths by material so neighbouring threads in the shading kernel
+        // take the same BSDF branch instead of diverging within a warp.
+        thrust::sort_by_key(
+            thrust::device,
+            dev_intersections,
+            dev_intersections + num_paths,
+            dev_paths,
+            materialIdLess());
+        checkCUDAError("sort by material");
+#endif
 
         // --- Shading Stage ---
         shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
