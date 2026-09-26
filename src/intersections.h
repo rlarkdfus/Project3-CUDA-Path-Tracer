@@ -5,6 +5,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/intersect.hpp>
 
+#include <cfloat>
+
 
 /**
  * Handy-dandy hash function that provides seeds for random number generation.
@@ -73,6 +75,48 @@ __host__ __device__ float sphereIntersectionTest(
     bool& outside);
 
 /**
+ * Slab test against an axis-aligned box: the box is the intersection of three
+ * pairs of parallel planes, so intersecting the ray's entry/exit interval for
+ * each axis and checking the result is non-empty answers the whole query in
+ * ~6 divisions, with no cross products or square roots.
+ *
+ * Conservative by construction -- the box contains every triangle, so a ray
+ * that misses the box provably misses them all. A ray clipping an empty corner
+ * is a harmless false positive that falls through to the triangle loop.
+ */
+__host__ __device__ inline bool aabbIntersectionTest(
+    const glm::vec3& bboxMin,
+    const glm::vec3& bboxMax,
+    const Ray& r)
+{
+    float tmin = -FLT_MAX;
+    float tmax = FLT_MAX;
+
+    for (int xyz = 0; xyz < 3; ++xyz)
+    {
+        // A zero component gives +/-inf here, which the min/max below handle
+        // correctly for a ray running parallel to this pair of planes.
+        float inv = 1.0f / r.direction[xyz];
+        float t1 = (bboxMin[xyz] - r.origin[xyz]) * inv;
+        float t2 = (bboxMax[xyz] - r.origin[xyz]) * inv;
+        if (t1 > t2)
+        {
+            float tmp = t1;
+            t1 = t2;
+            t2 = tmp;
+        }
+        tmin = glm::max(tmin, t1);   // latest entry wins
+        tmax = glm::min(tmax, t2);   // earliest exit wins
+        if (tmax < tmin)
+        {
+            return false;
+        }
+    }
+
+    return tmax > 0.0f;              // box entirely behind the ray origin
+}
+
+/*
  * Test intersection between a ray and a transformed triangle mesh, by
  * transforming the ray into the mesh's object space and testing every triangle
  * in the mesh's slice of the scene-wide triangle buffer.

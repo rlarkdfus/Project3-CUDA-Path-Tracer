@@ -43,9 +43,12 @@ struct Geom
     glm::mat4 invTranspose;
 
     // MESH only: the half-open range [triangleStart, triangleStart + triangleCount)
-    // into the scene's flat triangle buffer.
+    // into the scene's flat triangle buffer, plus the object-space bounding box
+    // used to reject rays before walking that range.
     int triangleStart;
     int triangleCount;
+    glm::vec3 bboxMin;
+    glm::vec3 bboxMax;
 };
 
 struct Material
