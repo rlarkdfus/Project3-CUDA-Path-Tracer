@@ -1,5 +1,6 @@
 #include "scene.h"
 
+#include "bvh.h"
 #include "utilities.h"
 
 #include <glm/gtc/matrix_inverse.hpp>
@@ -240,4 +241,15 @@ void Scene::loadFromOBJ(const std::string& objFileName, Geom& geom)
     geom.bboxMax = bboxMax + padding;
 
     cout << "Loaded " << geom.triangleCount << " triangles from " << objFileName << endl;
+
+    geom.bvhRoot = -1;
+    if (geom.triangleCount > 0)
+    {
+        geom.bvhRoot = buildBVH(triangles, geom.triangleStart, geom.triangleCount, bvhNodes);
+        // Linear in the mesh size, so cheap next to parsing the file.
+        if (!validateBVH(triangles, geom.triangleStart, geom.triangleCount, bvhNodes, geom.bvhRoot))
+        {
+            exit(-1);
+        }
+    }
 }
