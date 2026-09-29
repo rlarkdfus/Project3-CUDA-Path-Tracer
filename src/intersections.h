@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bvh.h"
 #include "sceneStructs.h"
 
 #include <glm/glm.hpp>
@@ -116,10 +117,42 @@ __host__ __device__ inline bool aabbIntersectionTest(
     return tmax > 0.0f;              // box entirely behind the ray origin
 }
 
+/**
+ * The same slab test, for BVH traversal: takes the reciprocal direction
+ * computed once per ray instead of once per box, and returns how far along the
+ * ray it enters the box (0 if it starts inside), so the traversal can visit the
+ * nearer child first.
+ *
+ * @param tMax  Closest hit found so far. A box entered at or beyond it can't
+ *              hold anything closer, so it counts as a miss.
+ * @return      Entry distance, or FLT_MAX for a miss.
+ */
+__host__ __device__ inline float aabbEntryDistance(
+    const glm::vec3& bboxMin,
+    const glm::vec3& bboxMax,
+    const glm::vec3& origin,
+    const glm::vec3& invDirection,
+    float tMax)
+{
+    glm::vec3 t1 = (bboxMin - origin) * invDirection;
+    glm::vec3 t2 = (bboxMax - origin) * invDirection;
+    glm::vec3 tNear = glm::min(t1, t2);
+    glm::vec3 tFar = glm::max(t1, t2);
+    float tEnter = glm::max(glm::max(tNear.x, tNear.y), tNear.z);
+    float tExit = glm::min(glm::min(tFar.x, tFar.y), tFar.z);
+
+    if (tExit < tEnter || tExit <= 0.0f || tEnter >= tMax)
+    {
+        return FLT_MAX;
+    }
+    return glm::max(tEnter, 0.0f);
+}
+
 /*
  * Test intersection between a ray and a transformed triangle mesh, by
- * transforming the ray into the mesh's object space and testing every triangle
- * in the mesh's slice of the scene-wide triangle buffer.
+ * transforming the ray into the mesh's object space and then either walking
+ * the mesh's BVH (BVH on) or testing every triangle in the mesh's slice of the
+ * scene-wide triangle buffer (BVH off).
  *
  * @param intersectionPoint  Output parameter for point of intersection.
  * @param normal             Output parameter for surface normal.
@@ -128,7 +161,7 @@ __host__ __device__ inline bool aabbIntersectionTest(
  */
 __host__ __device__ float meshIntersectionTest(
     Geom mesh,
-    const Triangle* triangles,
+    DeviceBVH bvh,
     Ray r,
     glm::vec3& intersectionPoint,
     glm::vec3& normal,

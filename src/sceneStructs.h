@@ -31,6 +31,18 @@ struct Triangle
     glm::vec3 n0, n1, n2;
 };
 
+// One node of a mesh's bounding volume hierarchy, 32 bytes so the GPU can
+// fetch it as two 16-byte loads. The two children of an internal node are
+// always stored next to each other, so only the left one needs an index.
+struct BVHNode
+{
+    glm::vec3 bboxMin;
+    int leftOrFirst;   // internal: index of the left child (right = left + 1)
+                       // leaf: first triangle in the scene's triangle buffer
+    glm::vec3 bboxMax;
+    int triCount;      // 0 for an internal node, > 0 for a leaf
+};
+
 struct Geom
 {
     enum GeomType type;
@@ -49,6 +61,10 @@ struct Geom
     int triangleCount;
     glm::vec3 bboxMin;
     glm::vec3 bboxMax;
+
+    // MESH only: root of this mesh's BVH in the scene's node buffer, or -1 for
+    // a mesh with no triangles.
+    int bvhRoot;
 };
 
 struct Material
