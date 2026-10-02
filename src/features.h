@@ -3,6 +3,8 @@
 #define ANTIALIASING 1
 #define STREAM_COMPACTION 1
 #define SORT_BY_MATERIAL 0
+#define RUSSIAN_ROULETTE 1
+#define RUSSIAN_ROULETTE_MIN_DEPTH 3   // bounces every path gets before it can be culled
 #define MESH_BOUNDING_VOLUME_CULLING 1
 #define BVH 1
 #define BVH_MAX_DEPTH 32   // deepest leaf; the GPU traversal stack is sized from this

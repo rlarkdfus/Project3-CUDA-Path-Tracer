@@ -278,6 +278,7 @@ __global__ void computeIntersections(
 // out of bounces.
 __global__ void shadeMaterial(
     int iter,
+    int depth,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
@@ -320,6 +321,27 @@ __global__ void shadeMaterial(
 
             glm::vec3 intersectPoint = getPointOnRay(segment.ray, intersection.t);
             scatterRay(segment, intersectPoint, intersection.surfaceNormal, intersection.outside, material, rng);
+
+#if RUSSIAN_ROULETTE
+            // Past the first few bounces, kill a path with probability equal to
+            // how much light it has already lost, and boost the survivors by
+            // the same amount so the expected contribution is unchanged. Dim
+            // paths stop costing a full set of bounces for almost no light.
+            if (depth >= RUSSIAN_ROULETTE_MIN_DEPTH && segment.remainingBounces > 0)
+            {
+                float survival = glm::min(
+                    glm::max(segment.color.r, glm::max(segment.color.g, segment.color.b)), 1.0f);
+                thrust::uniform_real_distribution<float> u01(0, 1);
+                if (u01(rng) >= survival)
+                {
+                    segment.remainingBounces = 0;
+                }
+                else
+                {
+                    segment.color /= survival;
+                }
+            }
+#endif
 
             if (segment.remainingBounces <= 0)
             {
@@ -440,6 +462,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // --- Shading Stage ---
         shadeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
+            depth,
             num_paths,
             dev_intersections,
             dev_paths,
