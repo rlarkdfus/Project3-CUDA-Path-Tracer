@@ -1,7 +1,8 @@
 #define ENABLE_SPECULAR 1
+#define REFRACTION 1
 #define ANTIALIASING 1
 #define STREAM_COMPACTION 1
-#define SORT_BY_MATERIAL 1
+#define SORT_BY_MATERIAL 0
 #define MESH_BOUNDING_VOLUME_CULLING 1
 #define BVH 1
 #define BVH_MAX_DEPTH 32   // deepest leaf; the GPU traversal stack is sized from this
