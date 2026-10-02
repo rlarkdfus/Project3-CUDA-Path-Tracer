@@ -91,6 +91,12 @@ struct Camera
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+
+    // Thin lens. A lens radius of 0 is a pinhole camera, where everything is in
+    // focus; otherwise points at focalDistance along the view are sharp and the
+    // rest blur in proportion to the lens radius.
+    float lensRadius;
+    float focalDistance;
 };
 
 struct RenderState
