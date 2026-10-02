@@ -130,6 +130,11 @@ void Scene::loadFromJSON(const std::string& jsonName)
     camera.lookAt = glm::vec3(lookat[0], lookat[1], lookat[2]);
     camera.up = glm::vec3(up[0], up[1], up[2]);
 
+    // Optional thin lens: APERTURE is the lens radius, and the focal distance
+    // defaults to the look-at point so that whatever the camera aims at is sharp.
+    camera.lensRadius = cameraData.value("APERTURE", 0.0f);
+    camera.focalDistance = cameraData.value("FOCAL_DIST", glm::length(camera.lookAt - camera.position));
+
     //calculate fov based on resolution
     float yscaled = tan(fovy * (PI / 180));
     float xscaled = (yscaled * camera.resolution.x) / camera.resolution.y;

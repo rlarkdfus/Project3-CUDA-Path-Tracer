@@ -177,19 +177,40 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         // Stochastic antialiasing: offset the sample by up to half a pixel in
         // each axis so that averaging over iterations integrates the whole
         // pixel footprint instead of point-sampling its center.
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
+        thrust::uniform_real_distribution<float> u01(0, 1);
+
         float jitterX = 0.0f;
         float jitterY = 0.0f;
 #if ANTIALIASING
-        thrust::default_random_engine rng = makeSeededRandomEngine(iter, index, 0);
-        thrust::uniform_real_distribution<float> uHalf(-0.5f, 0.5f);
-        jitterX = uHalf(rng);
-        jitterY = uHalf(rng);
+        jitterX = u01(rng) - 0.5f;
+        jitterY = u01(rng) - 0.5f;
 #endif
 
         segment.ray.direction = glm::normalize(cam.view
             - cam.right * cam.pixelLength.x * ((float)x + jitterX - (float)cam.resolution.x * 0.5f)
             - cam.up * cam.pixelLength.y * ((float)y + jitterY - (float)cam.resolution.y * 0.5f)
         );
+
+#if DEPTH_OF_FIELD
+        if (cam.lensRadius > 0.0f)
+        {
+            // Every ray from this pixel, wherever it leaves the lens, passes
+            // through the point the pinhole ray hits on the plane of focus. So
+            // that plane stays sharp and anything off it spreads over a disk.
+            float tFocus = cam.focalDistance / glm::dot(segment.ray.direction, cam.view);
+            glm::vec3 focusPoint = cam.position + tFocus * segment.ray.direction;
+
+            // Uniform point on the lens disk (sqrt so samples don't bunch up in
+            // the middle).
+            float r = cam.lensRadius * sqrtf(u01(rng));
+            float theta = TWO_PI * u01(rng);
+            segment.ray.origin = cam.position
+                + cam.right * (r * cosf(theta))
+                + cam.up * (r * sinf(theta));
+            segment.ray.direction = glm::normalize(focusPoint - segment.ray.origin);
+        }
+#endif
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
