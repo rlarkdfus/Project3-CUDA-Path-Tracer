@@ -105,6 +105,9 @@ static DeviceBVH dev_bvh = {};
 static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
+// Indices into dev_geoms of every emissive cube, for direct light sampling.
+static int* dev_lights = NULL;
+static int numLights = 0;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
@@ -136,7 +139,18 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_intersections, pixelcount * sizeof(ShadeableIntersection));
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
-    // TODO: initialize any extra device memeory you need
+    std::vector<int> lights;
+    for (int i = 0; i < (int)scene->geoms.size(); ++i)
+    {
+        const Geom& g = scene->geoms[i];
+        if (g.type == CUBE && scene->materials[g.materialid].emittance > 0.0f)
+        {
+            lights.push_back(i);
+        }
+    }
+    numLights = (int)lights.size();
+    cudaMalloc(&dev_lights, numLights * sizeof(int));
+    cudaMemcpy(dev_lights, lights.data(), numLights * sizeof(int), cudaMemcpyHostToDevice);
 
     checkCUDAError("pathtraceInit");
 }
@@ -149,7 +163,7 @@ void pathtraceFree()
     bvhFree(dev_bvh);
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
-    // TODO: clean up any extra device memory you created
+    cudaFree(dev_lights);
 
     checkCUDAError("pathtraceFree");
 }
@@ -303,7 +317,10 @@ __global__ void shadeMaterial(
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
     PathSegment* pathSegments,
-    Material* materials)
+    Material* materials,
+    Geom* geoms,
+    int* lights,
+    int numLights)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_paths)
@@ -341,7 +358,47 @@ __global__ void shadeMaterial(
                 makeSeededRandomEngine(iter, segment.pixelIndex, segment.remainingBounces);
 
             glm::vec3 intersectPoint = getPointOnRay(segment.ray, intersection.t);
-            scatterRay(segment, intersectPoint, intersection.surfaceNormal, intersection.outside, material, rng);
+
+#if DIRECT_LIGHTING
+            bool isDiffuse = material.hasReflective == 0.0f && material.hasRefractive == 0.0f;
+            if (segment.remainingBounces == 2 && isDiffuse && numLights > 0)
+            {
+                thrust::uniform_real_distribution<float> u01(0, 1);
+                const Geom& light = geoms[lights[glm::min((int)(u01(rng) * numLights), numLights - 1)]];
+
+                // Uniform point on the cube's bottom (-y) face.
+                glm::vec3 lightPoint = multiplyMV(light.transform, glm::vec4(u01(rng) - 0.5f, -0.5f, u01(rng) - 0.5f, 1.0f));
+                glm::vec3 lightNormal = glm::normalize( multiplyMV(light.invTranspose, glm::vec4(0.0f, -1.0f, 0.0f, 0.0f)));
+                float lightArea = light.scale.x * light.scale.z;
+
+                glm::vec3 normal = intersection.surfaceNormal;
+                glm::vec3 toLight = lightPoint - intersectPoint;
+                float dist2 = glm::dot(toLight, toLight);
+                glm::vec3 wi = toLight / sqrtf(dist2);
+
+                float cosSurf = glm::dot(normal, wi);
+                float cosLight = -glm::dot(lightNormal, wi);
+
+                if (cosSurf > 0.0f && cosLight > 0.0f)
+                {
+                    // Lambertian BRDF * cos / pdf, with the area pdf
+                    // 1 / (numLights * lightArea) converted to solid angle.
+                    segment.color *= material.color / PI * cosSurf * cosLight * lightArea * (float)numLights / dist2;
+                    segment.ray.direction = wi;
+                    segment.ray.origin = intersectPoint + normal * EPSILON;
+                    segment.remainingBounces--;
+                }
+                else
+                {
+                    // The sampled point faces away: no direct light this time.
+                    segment.remainingBounces = 0;
+                }
+            }
+            else
+#endif
+            {
+                scatterRay(segment, intersectPoint, intersection.surfaceNormal, intersection.outside, material, rng);
+            }
 
 #if RUSSIAN_ROULETTE
             // Past the first few bounces, kill a path with probability equal to
@@ -487,7 +544,10 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             num_paths,
             dev_intersections,
             dev_paths,
-            dev_materials
+            dev_materials,
+            dev_geoms,
+            dev_lights,
+            numLights
         );
         checkCUDAError("shade one bounce");
 

@@ -5,6 +5,7 @@
 #define STREAM_COMPACTION 1
 #define SORT_BY_MATERIAL 0
 #define RUSSIAN_ROULETTE 1
+#define DIRECT_LIGHTING 1     // aim each path's final traced ray at a random point on a light
 #define RUSSIAN_ROULETTE_MIN_DEPTH 3   // bounces every path gets before it can be culled
 #define MESH_BOUNDING_VOLUME_CULLING 1
 #define BVH 1
